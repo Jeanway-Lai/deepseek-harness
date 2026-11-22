@@ -857,6 +857,29 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
 
+  it('keeps an unplaced new Session inside the folded prefix of a manual order', () => {
+    const items = Array.from({ length: 8 }, (_, index) => summary(`session-${index + 1}`, 8 - index))
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setSessionOrder('alpha', items.map(item => item.id), {})
+    preferences.actions.setGroupExpanded('alpha', true)
+    localStorage.setItem('dsh.workspace.view.v5', JSON.stringify(preferences.getSnapshot()))
+    const b = mount({
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+    })
+    expect(b.store.getSnapshot().orderBy).toBe('manual')
+    expect(screen.getByText('session-1')).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+
+    const fork = summary('fork', 99)
+    rerender(b, {
+      useSessions: hook(sessionState([fork, ...items])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [fork.id, ...items.map(item => item.id)])])),
+    })
+    expect(screen.getByText('fork')).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+  })
+
   it('raises the watermark to the last attention row and keeps it after the attention ends', () => {
     const items = Array.from({ length: 12 }, (_, index) => summary(`session-${index + 1}`, 12 - index))
     const b = mount({
