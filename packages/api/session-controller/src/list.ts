@@ -339,10 +339,16 @@ function listFields(header: SessionHeader): {
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
+  readonly forked?: boolean
 } {
   return {
     ...(header.parentSession === undefined ? {} : { parentSessionId: header.parentSession }),
     ...(header.origin === undefined ? {} : { origin: header.origin }),
     ...(header.cwd === undefined ? {} : { cwd: header.cwd }),
+    // An ordinary fork is a seeded root: parented seeds are subagents, team
+    // members, or other derived Sessions that already name their origin.
+    ...(header.isSeeded === true && header.origin === undefined && header.parentSession === undefined
+      ? { forked: true }
+      : {}),
   }
 }

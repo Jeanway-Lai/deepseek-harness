@@ -205,6 +205,26 @@ describe('Session ordering', () => {
       .toEqual(['source', 'other', 'older-fork', 'newer-fork'])
   })
 
+  it('leads forked Sessions over a complete saved order', () => {
+    const sessions = list(
+      summary('source', 1), summary('other', 2), summary('regular', 3),
+      { ...summary('fork-a', 5), forked: true },
+      { ...summary('fork-b', 4), forked: true },
+      { ...summary('fork-archived', 6), forked: true },
+    )
+    const state = rowState({ archived: ['fork-archived'] })
+    // A saved order written by the previous supplementation rule keeps the
+    // forks at its tail; the user never placed them there.
+    const saved = ['other', 'source', 'regular', 'fork-a', 'fork-b', 'fork-archived']
+    expect(reconcileManualOrder(sessions.ids, saved, sessions.byId, state)).toEqual([
+      'fork-a', 'fork-b', 'other', 'source', 'regular', 'fork-archived',
+    ])
+    // Pinned members keep the leading slot the display gives them.
+    expect(reconcileManualOrder(sessions.ids, saved, sessions.byId, rowState({
+      pinned: ['regular'], archived: ['fork-archived'],
+    }))).toEqual(['fork-a', 'fork-b', 'other', 'source', 'regular', 'fork-archived'])
+  })
+
   it('orders unsaved nested forks by recency regardless of historical sources', () => {
     const sessions = list(
       summary('source', 1), summary('other', 2),

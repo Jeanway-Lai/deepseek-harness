@@ -32,6 +32,8 @@ export interface SessionListEntry {
   parentSessionId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
+  /** Root Session created from another Session's history by an ordinary fork. */
+  forked?: boolean
   /** Format classification supplied by the Host list. */
   formatStatus?: SessionSummary['formatStatus']
   cwd?: string

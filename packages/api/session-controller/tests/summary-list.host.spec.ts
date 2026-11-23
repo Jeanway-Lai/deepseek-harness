@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
-import SessionStore, { type SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionLogOffset, type SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionFollowFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import {
@@ -143,6 +143,32 @@ describe('session.list summary payload', () => {
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('sessionStats')
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('todos')
       expect(row?.projections?.values, `attempt ${String(attempt)}`).not.toHaveProperty('imageLimits')
+    }
+  })
+
+  it('marks only root seeded Sessions as forked', async () => {
+    const { ctx } = await harness()
+    const parent = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const seeded = { cwd: '/workspace', isSeeded: true }
+    const forked = ctx.sessions.create(undefined, {
+      seed: [], inheritedEventCount: SessionLogOffset(0), meta: seeded,
+    })
+    const subagent = ctx.sessions.create(undefined, {
+      seed: [],
+      inheritedEventCount: SessionLogOffset(0),
+      meta: { ...seeded, parentSession: parent.id, origin: 'subagent' },
+    })
+    const parentedSeed = ctx.sessions.create(undefined, {
+      seed: [], inheritedEventCount: SessionLogOffset(0), meta: { ...seeded, parentSession: parent.id },
+    })
+    const plain = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+
+    const response = await (await remote(ctx)).list({})
+    if (!response.ok) throw new Error('unreachable')
+    const forkedIds = response.value.items.filter(item => item.forked === true).map(item => item.sessionId)
+    expect(forkedIds).toEqual([forked.id])
+    for (const session of [parent, subagent, parentedSeed, plain]) {
+      expect(response.value.items.find(item => item.sessionId === session.id)?.forked).toBeUndefined()
     }
   })
 })

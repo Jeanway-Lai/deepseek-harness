@@ -35,6 +35,8 @@ export interface SessionSummary {
   parentId?: SessionId
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
+  /** Root Session created from another Session's history by an ordinary fork. */
+  forked?: boolean
   /** Format classification supplied by the Host list, when available. */
   formatStatus?: SessionListEntry['formatStatus']
   /** Host running state for `ids` members; a display fallback for other rows. */
@@ -667,6 +669,7 @@ export class ClientSessions implements ISessions {
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+        ...(entry.forked === true ? { forked: true } : {}),
       }
     }
     for (const [parentId, projection] of Object.entries(projectionsBySession)) {

@@ -155,6 +155,12 @@ export interface SessionSummary {
   readonly parentSessionId?: SessionId
   readonly origin?: 'subagent'
   readonly cwd?: string
+  /**
+   * A root Session created from another Session's history by an ordinary fork.
+   * Subagent children and other parented seeded Sessions are not forks; their
+   * `origin` or `parentSessionId` already describes them.
+   */
+  readonly forked?: boolean
   readonly projections?: SessionProjectionHints
 }
 

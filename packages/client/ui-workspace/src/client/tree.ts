@@ -166,14 +166,16 @@ export function orderByRecency(
 
 /**
  * Reconcile a browser-local manual order with current account membership.
- * Saved entries retain their relative order; new ordinary members lead them by
- * recency, because the list folds at its fifth row and an appended new Session
- * would start hidden.
+ * Saved entries retain their relative order. New ordinary members lead them by
+ * recency because the list folds at its fifth row and an appended new Session
+ * would start hidden. Forked Sessions also lead the saved sequence: their saved
+ * slot records where an earlier version appended them, never where the user put
+ * them, so a long saved order would otherwise keep every fork out of view.
  * @param memberIds - authoritative account membership.
  * @param savedOrder - previously saved browser-local order.
  * @param summaries - current Session metadata; unknown new members wait for their summaries.
  * @param rowState - global pin and archive membership; only account members can supplement the order.
- * @returns missing pins, new ordinary members by recency, saved relative positions, then missing archives.
+ * @returns missing pins, forked and new ordinary members by recency, saved relative positions, then missing archives.
  */
 export function reconcileManualOrder(
   memberIds: readonly SessionId[],
@@ -191,6 +193,17 @@ export function reconcileManualOrder(
     included.add(key)
   }
   const archived = new Set(rowState?.archivedSessionIds)
+  const pinnedMembers = new Set<SessionId>()
+  for (const sessionId of rowState?.pinnedSessionIds ?? []) {
+    const id = members.get(sessionId)
+    if (id !== undefined) pinnedMembers.add(id)
+  }
+  const forked: SessionId[] = []
+  for (const id of orderByRecency([...members.values()].filter(id =>
+    !pinnedMembers.has(id) && !archived.has(id) && summaries[id]?.forked === true), summaries)) {
+    forked.push(id)
+  }
+  const forkedSet = new Set<SessionId>(forked)
   const pins: SessionId[] = []
   for (const sessionId of rowState?.pinnedSessionIds ?? []) {
     const id = members.get(sessionId)
@@ -202,9 +215,9 @@ export function reconcileManualOrder(
   const archives: SessionId[] = []
   for (const id of orderByRecency([...members.values()].filter(id => !included.has(id)), summaries)) {
     if (archived.has(id)) archives.push(id)
-    else ordinary.push(id)
+    else if (!forkedSet.has(id)) ordinary.push(id)
   }
-  return [...pins, ...ordinary, ...ordered, ...archives]
+  return [...pins, ...forked, ...ordinary, ...ordered.filter(id => !forkedSet.has(id)), ...archives]
 }
 
 /**

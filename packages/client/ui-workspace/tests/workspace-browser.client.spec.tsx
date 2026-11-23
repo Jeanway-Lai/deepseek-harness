@@ -881,6 +881,22 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('session-6')).toBeNull()
   })
 
+  it('leads a forked Session that a saved order recorded last', () => {
+    const items = Array.from({ length: 8 }, (_, index) => summary(`session-${index + 1}`, 8 - index))
+    const forked = { ...summary('fork', 9), forked: true }
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setSessionOrder('alpha', [...items.map(item => item.id), forked.id], {})
+    preferences.actions.setGroupExpanded('alpha', true)
+    localStorage.setItem('dsh.workspace.view.v5', JSON.stringify(preferences.getSnapshot()))
+    mount({
+      useSessions: hook(sessionState([...items, forked])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [...items.map(item => item.id), forked.id])])),
+    })
+    expect(screen.getAllByRole('treeitem').slice(1).map(
+      row => row.querySelector('[class*="title"]')?.textContent,
+    )).toEqual(['fork', 'session-1', 'session-2', 'session-3', 'session-4'])
+  })
+
   it('raises the watermark to the last attention row and keeps it after the attention ends', () => {
     const items = Array.from({ length: 12 }, (_, index) => summary(`session-${index + 1}`, 12 - index))
     const b = mount({
