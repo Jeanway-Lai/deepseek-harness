@@ -93,16 +93,96 @@ function requiredWatermark(
   return required
 }
 
-/** Raise each listed group's watermark to its requirement; returns `marks` itself when nothing rises. */
-function raiseWatermarks(
-  marks: Readonly<Record<string, number>>,
-  required: ReadonlyMap<string, number>,
-): Readonly<Record<string, number>> {
-  let raised = marks
-  for (const [key, watermark] of required) {
-    if (watermark > (raised[key] ?? SESSION_WATERMARK_BASE)) raised = { ...raised, [key]: watermark }
+/** A raised fold: its row count and the last row it revealed. */
+interface GroupWatermark {
+  /** Revealed row count, kept as a floor when the boundary row leaves the list. */
+  count: number
+  /** Last revealed row; rows inserted above it move it down instead of hiding it. */
+  boundary?: SessionId
+}
+
+/**
+ * Count the non-blank rows up to and including `boundary`, which is the count
+ * `watermarkRows` reveals. An absent or blank boundary yields zero.
+ * @param sessions - the group's ordered rows.
+ * @param boundary - the last revealed row id.
+ * @returns the revealed non-blank row count through that row.
+ */
+function rowsThrough(sessions: readonly SessionNode[], boundary: SessionId | undefined): number {
+  if (boundary === undefined) return 0
+  let count = 0
+  for (const session of sessions) {
+    if (session.blank) continue
+    count += 1
+    if (session.id === boundary) return count
   }
-  return raised
+  return 0
+}
+
+/**
+ * Resolve each group's revealed row count from its raised fold, the automatic
+ * requirement, and the rows currently in the group. The boundary row keeps its
+ * own index, so a Session inserted above the fold grows the count with it.
+ * @param stored - raised folds by group key.
+ * @param required - automatic row requirement by group key.
+ * @param groups - current groups and their ordered rows.
+ * @returns the effective row count of every group.
+ */
+function resolveWatermarks(
+  stored: Readonly<Record<string, GroupWatermark>>,
+  required: ReadonlyMap<string, number>,
+  groups: readonly GroupNode[],
+): Record<string, number> {
+  const resolved: Record<string, number> = {}
+  for (const group of groups) {
+    const state = stored[group.key]
+    resolved[group.key] = Math.max(
+      SESSION_WATERMARK_BASE,
+      state?.count ?? 0,
+      rowsThrough(group.sessions, state?.boundary),
+      required.get(group.key) ?? 0,
+    )
+  }
+  return resolved
+}
+
+/**
+ * Anchor every fold to the last row it reveals, including the base fold, so a
+ * later insertion above that row keeps it visible.
+ * @param stored - raised folds by group key.
+ * @param resolved - effective row counts from the resolver.
+ * @param groups - current groups and their ordered rows.
+ * @returns the stored map, or a copy with the re-anchored folds.
+ */
+function recordRaisedWatermarks(
+  stored: Readonly<Record<string, GroupWatermark>>,
+  resolved: Readonly<Record<string, number>>,
+  groups: readonly GroupNode[],
+): Readonly<Record<string, GroupWatermark>> {
+  let next: Record<string, GroupWatermark> | undefined
+  for (const group of groups) {
+    // A group that has not listed its rows yet cannot anchor a fold; anchor it on the first render that can.
+    if (group.sessions.length === 0) continue
+    const state = stored[group.key]
+    const count = resolved[group.key] ?? SESSION_WATERMARK_BASE
+    const anchored = state?.boundary !== undefined
+      && group.sessions.some(session => session.id === state.boundary)
+    if (state !== undefined && anchored && count <= state.count) continue
+    next ??= { ...stored }
+    next[group.key] = watermarkState(group.sessions, count)
+  }
+  return next ?? stored
+}
+
+/**
+ * Build one raised fold covering `count` non-blank rows.
+ * @param sessions - the group's ordered rows.
+ * @param count - revealed non-blank row count.
+ * @returns the raised fold, anchored to the last row it covers.
+ */
+function watermarkState(sessions: readonly SessionNode[], count: number): GroupWatermark {
+  const boundary = watermarkRows(sessions, count).rows.at(-1)?.id
+  return { count, ...(boundary === undefined ? {} : { boundary }) }
 }
 
 /** Keep controlled input and RPC payload inside the session.search wire contract. */
@@ -330,8 +410,8 @@ function SessionTree({
   const revealGroup = revealSessionId === undefined || !workspaceReady
     ? undefined
     : owningGroupKey(workspaces, revealSessionId)
-  // Per-group raised watermarks; an absent key means the base watermark.
-  const [storedWatermarks, setStoredWatermarks] = useState<Readonly<Record<string, number>>>({})
+  // Per-group raised folds; an absent key means the base watermark.
+  const [storedWatermarks, setStoredWatermarks] = useState<Readonly<Record<string, GroupWatermark>>>({})
   // Advances on user-driven watermark changes so AnimatedRows settles them; automatic raises animate.
   const [watermarkMotionKey, setWatermarkMotionKey] = useState(0)
   // Transient drag marker state; the selected mode owns the resulting order.
@@ -397,9 +477,10 @@ function SessionTree({
   }
   // A group hidden by a folded ancestor keeps its own expansion and rows but must not raise its watermark.
   const requiredWatermarks = new Map([...baselines].filter(([key]) => !underFoldedAncestor(key)))
-  const sessionWatermarks = raiseWatermarks(storedWatermarks, requiredWatermarks)
+  const sessionWatermarks = resolveWatermarks(storedWatermarks, requiredWatermarks, groups)
   // Raising during render keeps the watermark monotonic without committing a lower frame first.
-  if (sessionWatermarks !== storedWatermarks) setStoredWatermarks(marks => raiseWatermarks(marks, requiredWatermarks))
+  const raisedWatermarks = recordRaisedWatermarks(storedWatermarks, sessionWatermarks, groups)
+  if (raisedWatermarks !== storedWatermarks) setStoredWatermarks(raisedWatermarks)
   const dropWatermarks = (drop: (key: string) => boolean): void => {
     if (!Object.keys(storedWatermarks).some(drop)) return
     setStoredWatermarks(marks => Object.fromEntries(Object.entries(marks).filter(([key]) => !drop(key))))
@@ -639,7 +720,10 @@ function SessionTree({
               }
               setStoredWatermarks(marks => ({
                 ...marks,
-                [group.key]: visible.hiddenCount <= SESSION_WATERMARK_BASE ? Infinity : watermark + SESSION_WATERMARK_BASE,
+                [group.key]: watermarkState(
+                  group.sessions,
+                  visible.hiddenCount <= SESSION_WATERMARK_BASE ? Number.POSITIVE_INFINITY : watermark + SESSION_WATERMARK_BASE,
+                ),
               }))
               setWatermarkMotionKey(key => key + 1)
             }}

@@ -877,6 +877,7 @@ describe('WorkspaceBrowser', () => {
       useWorkspaces: hook(workspaceState([workspace('alpha', [fork.id, ...items.map(item => item.id)])])),
     })
     expect(screen.getByText('fork')).toBeTruthy()
+    expect(screen.getByText('session-5')).toBeTruthy()
     expect(screen.queryByText('session-6')).toBeNull()
   })
 
@@ -917,7 +918,7 @@ describe('WorkspaceBrowser', () => {
     expectVisible(8)
   })
 
-  it('keeps the raised row count, not the Session, when a new Session pushes it down', () => {
+  it('keeps the raised rows visible when a new Session pushes them down', () => {
     const items = Array.from({ length: 12 }, (_, index) => summary(`session-${index + 1}`, 20 - index))
     const b = mount({
       useSessions: hook(sessionState(items)),
@@ -935,9 +936,10 @@ describe('WorkspaceBrowser', () => {
       useSessions: hook(sessionState([newest, ...items])),
       useWorkspaces: hook(workspaceState([workspace('alpha', [newest.id, ...items.map(item => item.id)])])),
     })
+    // The new row grows the fold instead of pushing session-9 past it.
     expect(screen.getByText('session-8')).toBeTruthy()
-    expect(screen.queryByText('session-9')).toBeNull()
-    expect(screen.getByRole('button', { name: '展开其余 4 个会话' })).toBeTruthy()
+    expect(screen.getByText('session-9')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '展开其余 3 个会话' })).toBeTruthy()
   })
 
   it('stops automatic raises at 50 rows while Show more continues past them', () => {
@@ -1092,9 +1094,11 @@ describe('WorkspaceBrowser', () => {
     rerender(b, {
       useSessions: hook(sessionState([{ ...blank, blank: false }, ...ordinary], { main: blank.id })),
     })
+    // The placeholder becomes a counted row; the rows it was shown beside stay visible.
     expect(screen.getByText('blank')).toBeTruthy()
-    expect(screen.queryByText('session-5')).toBeNull()
-    expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
+    expect(screen.getByText('session-5')).toBeTruthy()
+    expect(screen.queryByText('session-6')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 1 个会话' })).toBeTruthy()
   })
 
   it('pins the blank while collapsed drags keep an ordinary source visible', async () => {
